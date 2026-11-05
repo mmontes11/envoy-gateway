@@ -184,6 +184,12 @@ type Translator struct {
 	// store referenced resources in the IR for later use.
 	ExtensionGroupKinds []schema.GroupKind
 
+	// ExtensionBackendGroupKinds stores the group/kind of the resources an Extension registers as
+	// custom backends (ExtensionManager.BackendResources). Only these are dispatched to the
+	// extension as backendRefs: ExtensionGroupKinds also includes ExtensionManager.Resources,
+	// which may name a built-in backend kind for use as an extensionRef filter.
+	ExtensionBackendGroupKinds []schema.GroupKind
+
 	// ExtensionSecretGroupKinds stores the group/kind for resources registered in
 	// ExtensionManager.SecretResources. A listener's tls.certificateRefs may
 	// reference these kinds.
@@ -191,6 +197,14 @@ type Translator struct {
 
 	// ControllerNamespace is the namespace that Envoy Gateway controller runs in.
 	ControllerNamespace string
+
+	// ControllerResourcePrefix is the prefix applied to the names of the shared
+	// control-plane resources owned by the Envoy Gateway instance (for example
+	// the OIDC HMAC Secret created by certgen). It defaults to
+	// "envoy-gateway"; both that default and the empty prefix yield the
+	// historic single-instance resource names (see
+	// config.InstanceResourceName).
+	ControllerResourcePrefix string
 
 	// WasmCache is the cache for Wasm modules.
 	WasmCache wasm.Cache
@@ -501,6 +515,10 @@ func (t *Translator) Translate(ctx context.Context, resources *resource.Resource
 	)
 	t.checkRouteOverlaps(httpRoutes, grpcRoutes, xdsIR)
 	phases.End()
+
+	// Runs after BackendTrafficPolicies too, since their load balancer settings can split a
+	// rule into one cluster per backendRef.
+	t.checkIneffectiveBackendPriority(httpRoutes, grpcRoutes, xdsIR)
 
 	// Process SecurityPolicies
 	phases.Start("GatewayApiTranslator.ProcessSecurityPolicies",

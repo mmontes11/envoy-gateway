@@ -55,21 +55,22 @@ func NewOfflineGatewayAPIController(
 		extSecretGVKs          []schema.GroupVersionKind
 	)
 
-	if cfg.EnvoyGateway.ExtensionManager != nil {
-		for _, rsrc := range cfg.EnvoyGateway.ExtensionManager.Resources {
+	extensionManagers := cfg.EnvoyGateway.GetExtensionManagers()
+	for i := range extensionManagers {
+		em := &extensionManagers[i]
+		for _, rsrc := range em.Resources {
 			gvk := schema.GroupVersionKind(rsrc)
 			extGVKs = append(extGVKs, gvk)
 		}
-		for _, rsrc := range cfg.EnvoyGateway.ExtensionManager.PolicyResources {
+		for _, rsrc := range em.PolicyResources {
 			gvk := schema.GroupVersionKind(rsrc)
 			extServerPoliciesGVKs = append(extServerPoliciesGVKs, gvk)
-
 		}
-		for _, rsrc := range cfg.EnvoyGateway.ExtensionManager.BackendResources {
+		for _, rsrc := range em.BackendResources {
 			gvk := schema.GroupVersionKind(rsrc)
 			extBackendPoliciesGVKs = append(extBackendPoliciesGVKs, gvk)
 		}
-		for _, rsrc := range cfg.EnvoyGateway.ExtensionManager.SecretResources {
+		for _, rsrc := range em.SecretResources {
 			gvk := schema.GroupVersionKind(rsrc)
 			extSecretGVKs = append(extSecretGVKs, gvk)
 		}
@@ -85,7 +86,7 @@ func NewOfflineGatewayAPIController(
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate certificates: %w", err)
 	}
-	secrets := CertsToSecret(cfg.ControllerNamespace, certs)
+	secrets := CertsToSecret(cfg.ControllerResourcePrefix, cfg.ControllerNamespace, certs)
 	for i := range secrets {
 		if err := cli.Create(ctx, &secrets[i]); err != nil {
 			return nil, fmt.Errorf("failed to seed secret %s: %w", secrets[i].Name, err)
@@ -107,6 +108,7 @@ func NewOfflineGatewayAPIController(
 		log:               cfg.Logger,
 		classController:   gwapiv1.GatewayController(cfg.EnvoyGateway.Gateway.ControllerName),
 		namespace:         cfg.ControllerNamespace,
+		hmacSecretName:    config.InstanceResourceName(cfg.ControllerResourcePrefix, oidcHMACSecretName),
 		statusUpdater:     su,
 		resources:         resources,
 		subscriptions:     &subscriptions{},
@@ -144,7 +146,7 @@ func NewOfflineGatewayAPIController(
 	r.subscribeToResources(ctx)
 
 	if su != nil {
-		r.updateStatusFromSubscriptions(ctx, cfg.EnvoyGateway.ExtensionManager != nil)
+		r.updateStatusFromSubscriptions(ctx, len(extensionManagers) > 0)
 	}
 
 	return &OfflineGatewayAPIReconciler{

@@ -581,6 +581,27 @@ type KubernetesWatchMode struct {
 	// own managed infrastructure resources.
 	// Precisely one of Namespaces and NamespaceSelector must be set.
 	NamespaceSelector *metav1.LabelSelector `json:"namespaceSelector,omitempty"`
+
+	// ObjectSelector holds an optional label selector used to filter the
+	// namespaced resources that Envoy Gateway watches and reconciles:
+	// Gateway, ListenerSet, HTTPRoute, GRPCRoute, TLSRoute, TCPRoute, UDPRoute,
+	// BackendTLSPolicy, BackendTrafficPolicy, ClientTrafficPolicy,
+	// SecurityPolicy, EnvoyExtensionPolicy and EnvoyPatchPolicy. Only resources
+	// whose labels match the selector are reconciled, which allows multiple
+	// Envoy Gateway instances to share a namespace, each reconciling only the
+	// resources labelled for it.
+	// EnvoyProxy, Backend and HTTPRouteFilter are not filtered: they are looked
+	// up by name when referenced by the resources above, so an unlabeled
+	// reference from a matched resource keeps resolving.
+	// ObjectSelector is orthogonal to Type: it composes as an additional
+	// (AND) filter with any namespace watch mode. The namespace where Envoy
+	// Gateway runs is always reconciled for its own managed infrastructure
+	// resources. GatewayClass is not affected, as it is already partitioned
+	// by its spec.controllerName.
+	// An empty selector (no matchLabels and no matchExpressions) matches every
+	// object, i.e. it enables the filter without excluding anything.
+	// +optional
+	ObjectSelector *metav1.LabelSelector `json:"objectSelector,omitempty"`
 }
 
 const (
@@ -919,6 +940,13 @@ type ExtensionManager struct {
 	// custom backendRef resources. These resources can be referenced in HTTPRoute
 	// backendRefs to enable support for custom backend types (e.g., S3, Lambda, etc.)
 	// that are not natively supported by Envoy Gateway.
+	//
+	// The backend kinds Envoy Gateway resolves itself (core Service,
+	// multicluster.x-k8s.io/ServiceImport and gateway.envoyproxy.io/Backend) are not allowed:
+	// backendRefs are matched by group and kind, so listing one of them would hand every backendRef
+	// of that kind in the cluster to the extension, bypassing Envoy Gateway's own validation and
+	// endpoint resolution for it. Use the xDS translator hooks to adjust the clusters Envoy Gateway
+	// generates for those backends instead.
 	//
 	// +optional
 	BackendResources []GroupVersionKind `json:"backendResources,omitempty"`
